@@ -1,12 +1,14 @@
 import requests
 import time
+import random
 import csv
 import os
-import re
+from curl_cffi import requests
+from bs4 import BeautifulSoup
 
 
 LIMIT = 100
-MAX_LOOPS = 5
+MAX_LOOPS = 1
 OUTPUT_FILE = "disaster_articles.csv"
 URL_TEMPLATE = "https://od2-content-api.abs-cbn.com/prod/latest?sectionId=nation&brand=OD&partner=imp-01&limit={}&offset={}"
 
@@ -46,12 +48,42 @@ def is_disaster(article):
             
     return False, None
 
+def get_article_text(url):
+    try:
+        sleep_time = random.uniform(3, 7)
+        print(f"      ... sleeping {sleep_time:.1f}s ...")
+        time.sleep(sleep_time)
+
+        response = requests.get(url, impersonate="chrome107", headers=headers)
+
+        if response.status_code != 200:
+            print(f"Error: {response.status_code}")
+            return "Error"
+
+        soup = BeautifulSoup(response.content, 'html.parser')
+
+        article_text = ""
+
+        containers = soup.find_all(class_ = "MuiBox-root css-1bmy43m")
+
+        for container in containers:
+            paragraph_text = container.find('p')
+            if paragraph_text:
+                article_text += paragraph_text.get_text().strip() + " "
+                print(article_text)
+
+        return article_text
+    except Exception as e:
+        print(f"Article Error: {e}")
+        return "Error"
+        
+
 def run_scraper():
     file_exists = os.path.isfile(OUTPUT_FILE)
     with open(OUTPUT_FILE, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["Date", "Headline", "Keyword", "Link", "Tags"])
+            writer.writerow(["Date", "Headline", "Keyword", "Link", "Tags", "Abstract", "Article"])
 
         print("Scraping with Limit = {LIMIt} per request")
 
@@ -85,13 +117,14 @@ def run_scraper():
                     match, kw = is_disaster(item)
                     if match:
                         matches +=1
-                        print(f"Found {item['title'][:40]}")
                         writer.writerow([
                             item.get("createdDateFull"),
                             item.get("title"),
                             kw,
                             f"https://news.abs-cbn.com/{item.get('slugline_url')}",
-                            item.get("tags")
+                            item.get("tags"),
+                            item.get("abstract"),
+                            get_article_text(f"https://news.abs-cbn.com/{item.get('slugline_url')}")
                         ])
 
                 current_offset += returned_count
@@ -102,6 +135,9 @@ def run_scraper():
                 print(f"Syntax Error: {e}")
                 break
     print("\n done.")
+    
 
+
+    
 if __name__ == "__main__":
     run_scraper()
