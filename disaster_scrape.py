@@ -6,7 +6,9 @@ import os
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 import re
-
+from pydrive.auth import GoogleAuth	# pip install pydrive oauth2client
+from pydrive.drive import GoogleDrive
+from oauth2client.service_account import ServiceAccountCredentials
 
 LIMIT = 100
 MAX_LOOPS = 1
@@ -94,6 +96,41 @@ def get_article_text(url, headers):
 
     return cleaned
 
+def get_or_create_shared_folder(drive, folder_name="DisasterArticles"):
+    query = f"title='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+    file_list = drive.ListFile({'q': query}).GetList()
+    
+    if file_list:
+        folder = file_list[0]  # get first folder
+     
+    share_link = folder['alternateLink']
+    print(f"Shareable folder link: {share_link}")
+    
+    return folder['id'], share_link
+
+def upload_to_drive(file_path):
+    gauth = GoogleAuth()
+    gauth.LoadCredentialsFile("credentials.txt")
+
+    if gauth.credentials is None:
+        gauth.LocalWebserverAuth()
+    elif gauth.access_token_expired:
+        gauth.Refresh()
+    else:
+        gauth.Authorize()
+
+    gauth.SaveCredentialsFile("credentials.txt")
+    drive = GoogleDrive(gauth)
+    folder_id, share_link = get_or_create_shared_folder(drive)
+
+    file = drive.CreateFile({
+        'title': os.path.basename(file_path),
+        'parents': [{'id': folder_id}]
+    })
+    file.SetContentFile(file_path)
+    file.Upload()
+    print(f"Uploaded {file_path} to {share_link}")
+
 def run_scraper():
     file_exists = os.path.isfile(OUTPUT_FILE)
     with open(OUTPUT_FILE, mode='a', newline='', encoding='utf-8') as f:
@@ -157,6 +194,8 @@ def run_scraper():
 
             print(f"took {length} seconds to get data")
     print("\n done.")
+
+    upload_to_drive(OUTPUT_FILE)
     
 if __name__ == "__main__":
     run_scraper()
