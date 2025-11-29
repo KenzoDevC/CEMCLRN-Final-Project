@@ -4,7 +4,14 @@ import random
 import csv
 import os
 from curl_cffi import requests
-from bs4 import BeautifulSoup
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import re
 
 
 LIMIT = 100
@@ -49,34 +56,71 @@ def is_disaster(article):
     return False, None
 
 def get_article_text(url):
+    chrome_options = Options()
+    
+    chrome_options.add_argument("--headless=new") 
+    
+    chrome_options.add_argument('--ignore-certificate-errors')
+    chrome_options.add_argument('--allow-insecure-localhost')
+
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    chrome_options.add_argument(f'user-agent={user_agent}')
+
+    chrome_options.add_argument("--log-level=3")
+
+    chrome_options.page_load_strategy = 'eager'
+
+    prefs = {"profile.managed_default_content_settings.images": 2}
+    chrome_options.add_experimental_option("prefs", prefs)
+
     try:
-        sleep_time = random.uniform(3, 7)
-        print(f"      ... sleeping {sleep_time:.1f}s ...")
-        time.sleep(sleep_time)
+        service = ChromeService(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
 
-        response = requests.get(url, impersonate="chrome107", headers=headers)
+    except Exception as e:
+        print(f"Webdriver Error: {e}")
+        return "Error"
 
-        if response.status_code != 200:
-            print(f"Error: {response.status_code}")
+    try:
+        start = time.time()
+        driver.get(url)
+
+        try:
+            wait = WebDriverWait(driver, 10) # Max wait 10s
+            container = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "imp-article-0")))
+        except Exception:
+            print(f"Error: Element not found on {url}")
             return "Error"
 
-        soup = BeautifulSoup(response.content, 'html.parser')
-
         article_text = ""
+        paragraphs = container.find_elements(By.TAG_NAME, 'p')
 
-        containers = soup.find_all(class_ = "MuiBox-root css-1bmy43m")
+        for p_element in paragraphs:
+            text = p_element.text
 
-        for container in containers:
-            paragraph_text = container.find('p')
-            if paragraph_text:
-                article_text += paragraph_text.get_text().strip() + " "
-                print(article_text)
+            try:
+                text = text.encode('iso-8859-1').decode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                pass
+
+            article_text += text.strip() + " "
+
+        end = time.time()
+
+        length = end-start
+
+        print(f"Took {length} seconds to scrape")
+
+        article_text = article_text.replace("ADVERTISEMENT", "")
 
         return article_text
+
     except Exception as e:
         print(f"Article Error: {e}")
         return "Error"
-        
+    finally:
+        if 'driver' in locals() and driver:
+            driver.quit()
 
 def run_scraper():
     file_exists = os.path.isfile(OUTPUT_FILE)
@@ -85,9 +129,10 @@ def run_scraper():
         if not file_exists:
             writer.writerow(["Date", "Headline", "Keyword", "Link", "Tags", "Abstract", "Article"])
 
-        print("Scraping with Limit = {LIMIt} per request")
+        print("Scraping with Limit = {LIMIT} per request")
 
         for i in range(MAX_LOOPS):
+            start = time.time()
             current_offset = i * LIMIT
             target_url = URL_TEMPLATE.format(LIMIT, current_offset)
 
@@ -128,16 +173,18 @@ def run_scraper():
                         ])
 
                 current_offset += returned_count
-
                 time.sleep(1)
 
             except Exception as e:
                 print(f"Syntax Error: {e}")
                 break
+
+            end = time.time()
+
+            length = end - start
+
+            print(f"took {length} seconds to get data")
     print("\n done.")
-    
-
-
     
 if __name__ == "__main__":
     run_scraper()
