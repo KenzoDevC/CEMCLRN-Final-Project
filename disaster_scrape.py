@@ -4,19 +4,13 @@ import random
 import csv
 import os
 from curl_cffi import requests
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service as ChromeService
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from bs4 import BeautifulSoup
 import re
 
 
 LIMIT = 100
 MAX_LOOPS = 1
-OUTPUT_FILE = "disaster_articles.csv"
+OUTPUT_FILE = "disaster_articless.csv"
 URL_TEMPLATE = "https://od2-content-api.abs-cbn.com/prod/latest?sectionId=nation&brand=OD&partner=imp-01&limit={}&offset={}"
 
 
@@ -55,72 +49,117 @@ def is_disaster(article):
             
     return False, None
 
-def get_article_text(url):
-    chrome_options = Options()
+# def get_article_text(url):
+#     chrome_options = Options()
     
-    chrome_options.add_argument("--headless=new") 
+#     chrome_options.add_argument("--headless=new") 
     
-    chrome_options.add_argument('--ignore-certificate-errors')
-    chrome_options.add_argument('--allow-insecure-localhost')
+#     chrome_options.add_argument('--ignore-certificate-errors')
+#     chrome_options.add_argument('--allow-insecure-localhost')
 
-    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    chrome_options.add_argument(f'user-agent={user_agent}')
+#     user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+#     chrome_options.add_argument(f'user-agent={user_agent}')
 
-    chrome_options.add_argument("--log-level=3")
+#     chrome_options.add_argument("--log-level=3")
 
-    chrome_options.page_load_strategy = 'eager'
+#     chrome_options.page_load_strategy = 'eager'
 
-    prefs = {"profile.managed_default_content_settings.images": 2}
-    chrome_options.add_experimental_option("prefs", prefs)
+#     prefs = {"profile.managed_default_content_settings.images": 2}
+#     chrome_options.add_experimental_option("prefs", prefs)
 
-    try:
-        service = ChromeService(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+#     try:
+#         service = ChromeService(ChromeDriverManager().install())
+#         driver = webdriver.Chrome(service=service, options=chrome_options)
 
-    except Exception as e:
-        print(f"Webdriver Error: {e}")
-        return "Error"
+#     except Exception as e:
+#         print(f"Webdriver Error: {e}")
+#         return "Error"
 
-    try:
-        start = time.time()
-        driver.get(url)
+#     try:
+#         start = time.time()
+#         driver.get(url)
 
-        try:
-            wait = WebDriverWait(driver, 10) # Max wait 10s
-            container = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "imp-article-0")))
-        except Exception:
-            print(f"Error: Element not found on {url}")
-            return "Error"
+#         try:
+#             wait = WebDriverWait(driver, 10) # Max wait 10s
+#             container = wait.until(EC.presence_of_element_located((By.CLASS_NAME, "imp-article-0")))
+#         except Exception:
+#             print(f"Error: Element not found on {url}")
+#             return "Error"
 
-        article_text = ""
-        paragraphs = container.find_elements(By.TAG_NAME, 'p')
+#         article_text = ""
+#         paragraphs = container.find_elements(By.TAG_NAME, 'p')
 
-        for p_element in paragraphs:
-            text = p_element.text
+#         for p_element in paragraphs:
+#             text = p_element.text
 
-            try:
-                text = text.encode('iso-8859-1').decode('utf-8')
-            except (UnicodeEncodeError, UnicodeDecodeError):
-                pass
+#             try:
+#                 text = text.encode('iso-8859-1').decode('utf-8')
+#             except (UnicodeEncodeError, UnicodeDecodeError):
+#                 pass
 
-            article_text += text.strip() + " "
+#             article_text += text.strip() + " "
 
-        end = time.time()
+#         end = time.time()
 
-        length = end-start
+#         length = end-start
 
-        print(f"Took {length} seconds to scrape")
+#         print(f"Took {length} seconds to scrape")
 
-        article_text = article_text.replace("ADVERTISEMENT", "")
+#         article_text = article_text.replace("ADVERTISEMENT", "")
 
-        return article_text
+#         return article_text
 
-    except Exception as e:
-        print(f"Article Error: {e}")
-        return "Error"
-    finally:
-        if 'driver' in locals() and driver:
-            driver.quit()
+#     except Exception as e:
+#         print(f"Article Error: {e}")
+#         return "Error"
+#     finally:
+#         if 'driver' in locals() and driver:
+#             driver.quit()
+
+def clean_text(html_string):
+    if not html_string:
+        return ""
+
+    soup = BeautifulSoup(html_string, 'html.parser')
+
+    for element in soup.find_all(class_=['fr-img-caption', 'fr-img-wrap', 'img']):
+        element.decompose()
+    
+    for link in soup.find_all('a'):
+        link.replace_with(link.get_text())
+
+    for element in soup.find_all(['iframe', 'span', 'strong'], class_=['fr-video', 'fr-deletable', 'fr-fvc', 'fr-dvb', 'fr-draggable']):
+        element.decompose()
+        
+    for element in soup.find_all(['script', 'style', 'noscript', 'br']):
+        element.decompose()
+
+    for p in soup.find_all('p'):
+        if not p.get_text(strip=True):
+            p.decompose()
+
+    raw_text = soup.get_text(separator='\n', strip=True)
+
+    cleaned_text = re.sub(r'(\n{3,})', '\n\n', raw_text)
+    
+    cleaned_text = cleaned_text.strip()
+    
+    cleaned_text = re.sub(r'[ \t]+', ' ', cleaned_text)
+
+    return cleaned_text
+
+def get_article_text(url, headers):
+    target_url = "https://od2-content-api.abs-cbn.com/prod/pageinfo?url=" + url
+    response = requests.get(target_url, headers=headers)
+
+    if response.status_code != 200:
+        return(f"Error: {response.status_code}")
+    data = response.json()
+    article_data = data["data"]["body_html"]
+
+    cleaned = clean_text(article_data)
+
+    return cleaned
 
 def run_scraper():
     file_exists = os.path.isfile(OUTPUT_FILE)
@@ -169,7 +208,7 @@ def run_scraper():
                             f"https://news.abs-cbn.com/{item.get('slugline_url')}",
                             item.get("tags"),
                             item.get("abstract"),
-                            get_article_text(f"https://news.abs-cbn.com/{item.get('slugline_url')}")
+                            get_article_text(f"{item.get('slugline_url')}", headers)
                         ])
 
                 current_offset += returned_count
