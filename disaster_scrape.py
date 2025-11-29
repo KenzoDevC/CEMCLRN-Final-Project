@@ -6,9 +6,8 @@ import os
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 import re
-from pydrive.auth import GoogleAuth	# pip install pydrive oauth2client
+from pydrive.auth import GoogleAuth	# pip install pydrive
 from pydrive.drive import GoogleDrive
-from oauth2client.service_account import ServiceAccountCredentials
 
 LIMIT = 100
 MAX_LOOPS = 1
