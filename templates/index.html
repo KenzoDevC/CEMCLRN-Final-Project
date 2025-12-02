@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Philippines Disaster Map</title>
+    <title>Philippines Disaster Summarizer</title>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -135,9 +135,10 @@
         };
         info.update = function(props){
             this._div.innerHTML = props ?
-                `<b>${props.adm2_en || "Unknown"}</b>` :
-                'Hover over a province';
+                `<b style="color:white;">${props.adm2_en || "Unknown"}</b>` :
+                `<span style="color:white;">Hover over a province</span>`;
         };
+
         info.addTo(map);
 
         // -------------------------------------------------------
@@ -213,6 +214,7 @@
 
             return html;
         }
+
         // All disaster types
         var disasterTypes = ["flooding", "typhoon", "fire", "earthquake", "volcanic-eruption", "other"];
 
@@ -225,8 +227,6 @@
             "volcanic-eruption": "<img src='{{ url_for('static', filename='icons/volcanic-eruption.svg') }}' width='40' height='40'>",
             "other": "<img src='{{ url_for('static', filename='icons/other.svg') }}' width='40' height='40'>"
         };
-
-
 
         // -------------------------------------------------------
         // MAP INTERACTIONS
@@ -298,7 +298,7 @@
         }
 
         // -------------------------------------------------------
-        // GEOJSON LAYER (ONLY DECLARE ONCE)
+        // GEOJSON LAYER
         // -------------------------------------------------------
         var geojson = L.geoJson(phProvinces, {
             style: style,
