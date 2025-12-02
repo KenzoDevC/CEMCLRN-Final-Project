@@ -75,17 +75,75 @@
         .disaster-popup {
             display: flex;
             gap: 5px;
-            flex-wrap: nowrap;       /* Keep all icons in one row */
-            overflow-x: auto;        /* Scroll horizontally if needed */
+            flex-wrap: nowrap;
+            overflow-x: auto;
             padding: 2px;
+        }
+        
+        .header-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #ddd;
+            height: 60px;
+            box-sizing: border-box;
+        }
+
+        h2 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+
+        .ingest-form {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        input[type="number"] {
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: 50px;
+        }
+
+        .btn-ingest {
+            background-color: #d9534f;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .btn-ingest:hover {
+            background-color: #c9302c;
         }
     </style>
 </head>
 
 <body>
-    <h2 style="padding-left: 10px;">Philippines Disaster Summarizer</h2>
+        <div class="header-section">
+            <h2>Philippines Disaster Summarizer</h2>
 
-    <div id="container">
+            <form action="/run-ingestion" method="get" class="ingest-form" onsubmit="return confirm('Starting Scraper... This will take 20-30 seconds. Continue?');">
+                <label for="days">Scrape Past:</label>
+                <input type="number" id="days" name="days" value="3" min="1" max="30">
+                <span>days</span>
+                
+                <button type="submit" class="btn-ingest">
+                    🚀 Run Edge Scraper
+                </button>
+            </form>
+        </div>
+
+        <div id="container">
         <!-- LEFT: MAP -->
         <div id="map"></div>
 
@@ -119,9 +177,14 @@
         fetch("static/data/summaries_by_province.json")
             .then(r => r.json())
             .then(data => {
-                provinceSummaries = data;
-                console.log("Loaded summarized data:", data);
+                const flatArticles = data.all_data || []; 
+                provinceSummaries = aggregateData(flatArticles); 
+                console.log("Aggregated data for map:", provinceSummaries);
                 geojson.setStyle(style);
+            })
+            .catch(error => {
+                console.error("Error fetching or processing JSON:", error);
+                alert("Failed to load map data. Check Colab output.");
             });
 
         // -------------------------------------------------------
@@ -143,6 +206,7 @@
         // -------------------------------------------------------
         // STYLING
         // -------------------------------------------------------
+        
         function style(feature) {
             const provName = feature.properties.adm2_en;
             const summaryObj = provinceSummaries[provName] || null;
@@ -157,6 +221,7 @@
                 fillOpacity: 0.7
             };
         }
+
         
         function highlightFeature(e){
             var layer = e.target;
@@ -231,6 +296,25 @@
         // -------------------------------------------------------
         // MAP INTERACTIONS
         // -------------------------------------------------------
+
+        function aggregateData(flatArticles) {
+            const aggregated = {};
+            flatArticles.forEach(item => {
+                const prov = item.Province || "Unknown"; 
+                const type = item.Type || "other";
+                
+                if (!aggregated[prov]) {
+                    aggregated[prov] = {};
+                }
+                if (!aggregated[prov][type]) {
+                    aggregated[prov][type] = [];
+                }
+                
+                aggregated[prov][type].push(item);
+            });
+            return aggregated;
+        }
+
         function onEachFeature(feature, layer) {
             layer.on({
                 mouseover: highlightFeature,
@@ -304,6 +388,8 @@
             style: style,
             onEachFeature: onEachFeature
         }).addTo(map);
+
+        
     </script>
 </body>
 </html>

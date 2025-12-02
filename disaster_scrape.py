@@ -6,7 +6,7 @@ import os
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 import re
-from pydrive.auth import GoogleAuth	# pip install pydrive
+from pydrive.auth import GoogleAuth
 from pydrive.drive import GoogleDrive
 from datetime import datetime, timedelta
 from dateutil import parser
@@ -118,33 +118,39 @@ def date_in_range(article_date_str, start_date, end_date):
         return False
     return start_date <= article_dt <= end_date
 
-
 def upload_to_drive(file_path):
     gauth = GoogleAuth()
     gauth.LoadCredentialsFile("credentials.txt")
-
+    
     if gauth.credentials is None:
         gauth.LocalWebserverAuth()
     elif gauth.access_token_expired:
         gauth.Refresh()
     else:
         gauth.Authorize()
-
+        
     gauth.SaveCredentialsFile("credentials.txt")
     drive = GoogleDrive(gauth)
-    folder_id, share_link = get_or_create_shared_folder(drive)
 
-    file = drive.CreateFile({
-        'title': os.path.basename(file_path),
-        'parents': [{'id': folder_id}]
-    })
+    folder_id, share_link = get_or_create_shared_folder(drive)
+    file_name = os.path.basename(file_path)
+
+    query = f"title='{file_name}' and '{folder_id}' in parents and trashed=false"
+    file_list = drive.ListFile({'q': query}).GetList()
+
+    if len(file_list) > 0:
+        file = file_list[0]
+        print(f"Updating existing file on Drive: {file_name}")
+    else:
+        file = drive.CreateFile({'title': file_name, 'parents': [{'id': folder_id}]})
+        print(f"Creating new file on Drive: {file_name}")
+
     file.SetContentFile(file_path)
     file.Upload()
-    print(f"Uploaded {file_path} to {share_link}")
+    print(f"Sync Successful! File ID: {file['id']}")
 
 
 def run_scraper(start_date=None, end_date=None):
-    # Set default date range to past 7 days if not provided
     if start_date is None or end_date is None:
         end_date = datetime.now().date()
         start_date = end_date - timedelta(days=7)
@@ -195,14 +201,12 @@ def run_scraper(start_date=None, end_date=None):
                 for item in articles:
                     match, kw = is_disaster(item)
                     if match:
-                        # check date
                         article_date = item.get("createdDateFull")
 
                         if start_date and end_date:
                             if not date_in_range(article_date, start_date, end_date):
-                                continue   # skip
+                                continue
 
-                        # only continues here if date is valid
                         matches += 1
                         writer.writerow([
                             item.get("createdDateFull"),
@@ -230,7 +234,6 @@ def run_scraper(start_date=None, end_date=None):
         import pandas as pd
         df = pd.read_csv(OUTPUT_FILE)
 
-        # Remove duplicates based on Link
         df = df.drop_duplicates(subset=["Link"], keep="first")
 
         df.to_csv(OUTPUT_FILE, index=False)
@@ -239,8 +242,10 @@ def run_scraper(start_date=None, end_date=None):
     except Exception as e:
         print(f"Duplicate cleanup error: {e}")
 
+    print
+    upload_to_drive(OUTPUT_FILE)
+
     return OUTPUT_FILE
-    #upload_to_drive(OUTPUT_FILE)
     
 if __name__ == "__main__":
     run_scraper()
