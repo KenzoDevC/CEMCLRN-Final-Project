@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Philippines Disaster Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+
+        /* MAIN LAYOUT */
+        #container {
+            display: flex;
+            height: calc(100vh - 60px);
+        }
+
+        #map {
+            flex: 1;
+        }
+
+        #info-panel {
+            width: 380px;
+            padding: 15px;
+            border-left: 2px solid #ddd;
+            overflow-y: auto;
+            background: #fafafa;
+        }
+
+        /* ICONS */
+        .disaster-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .disaster-icon-wrapper {
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #eee;
+            padding: 4px;
+        }
+
+        .disaster-icon-wrapper.active-disaster {
+            background: #ffd3d3;
+        }
+
+        .summary-box {
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            background: white;
+        }
+
+        .disaster-icon-container {
+            display: inline-flex;
+            justify-content: center;
+            align-items: center;
+            width: 50px;
+            height: 50px;
+            margin: 2px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .disaster-popup {
+            display: flex;
+            gap: 5px;
+            flex-wrap: nowrap;       /* Keep all icons in one row */
+            overflow-x: auto;        /* Scroll horizontally if needed */
+            padding: 2px;
+        }
+    </style>
+</head>
+
+<body>
+    <h2 style="padding-left: 10px;">Philippines Disaster Summarizer</h2>
+
+    <div id="container">
+        <!-- LEFT: MAP -->
+        <div id="map"></div>
+
+        <!-- RIGHT: DISASTER PANEL -->
+        <div id="info-panel">
+            <h2>Disaster Information</h2>
+            <div id="info-content">
+                <p>Select a province on the map.</p>
+            </div>
+            <div id="rightPanelIcons"></div> <!-- All icons will render here -->
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='phprovinces.js') }}"></script>
+
+    <script>
+        // -------------------------------------------------------
+        // BASIC SETUP
+        // -------------------------------------------------------
+        var map = L.map('map').setView([12.8797, 121.7740], 6);
+
+        L.tileLayer('https://tiles.stadiamaps.com/tiles/stamen_toner_dark/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Storage for summaries coming from BART-generated JSON
+        let provinceSummaries = {};
+
+        fetch("static/data/summaries_by_province.json")
+            .then(r => r.json())
+            .then(data => {
+                provinceSummaries = data;
+                console.log("Loaded summarized data:", data);
+                geojson.setStyle(style);
+            });
+
+        // -------------------------------------------------------
+        // INFO CONTROL (TOP-RIGHT HOVER)
+        // -------------------------------------------------------
+        var info = L.control();
+        info.onAdd = function(map){
+            this._div = L.DomUtil.create('div', 'info');
+            this.update();
+            return this._div;
+        };
+        info.update = function(props){
+            this._div.innerHTML = props ?
+                `<b>${props.adm2_en || "Unknown"}</b>` :
+                'Hover over a province';
+        };
+        info.addTo(map);
+
+        // -------------------------------------------------------
+        // STYLING
+        // -------------------------------------------------------
+        function style(feature) {
+            const provName = feature.properties.adm2_en;
+            const summaryObj = provinceSummaries[provName] || null;
+            const hasDisasters = summaryObj && Object.keys(summaryObj).length > 0;
+
+            return {
+                fillColor: hasDisasters ? '#FFCC00' : '#D3D3D3', // yellow if disaster, light gray if none
+                weight: 1,
+                opacity: 1,
+                color: 'white',
+                dashArray: '3',
+                fillOpacity: 0.7
+            };
+        }
+        
+        function highlightFeature(e){
+            var layer = e.target;
+            layer.setStyle({
+                weight: 3,
+                color: '#666',
+                dashArray: '',
+                fillOpacity: 0.7
+            });
+            info.update(layer.feature.properties);
+        }
+
+        function resetHighlight(e){
+            geojson.resetStyle(e.target);
+            info.update();
+        }
+
+        // -------------------------------------------------------
+        // RIGHT PANEL
+        // -------------------------------------------------------
+        function buildSidePanelContent(provinceName, summaryObj) {
+            let html = `<h3>${provinceName}</h3>`;
+
+            if (!summaryObj) return html + "<p>No disaster reports.</p>";
+
+            const types = Object.keys(summaryObj);
+            if (types.length === 0) return html + "<p>No data.</p>";
+
+            // ICON ROW
+            html += `<div class="disaster-row">`;
+            types.forEach(t => {
+                let iconPath = "{{ url_for('static', filename='icons') }}/" + t + ".svg";
+                html += `
+                    <div class="disaster-icon-wrapper active-disaster">
+                        <img src="${iconPath}" width="30">
+                    </div>
+                `;
+            });
+            html += `</div>`;
+
+            // Summaries
+            types.forEach(t => {
+                summaryObj[t].forEach(ent => {
+                    html += `
+                        <div class="summary-box">
+                            <b>${t.toUpperCase()}</b><br>
+                            <b>${ent.Date}</b> — ${ent.Headline}<br>
+                            <a href="${ent.Link}" target="_blank">Source</a>
+                            <p>${ent.Summary}</p>
+                        </div>
+                    `;
+                });
+            });
+
+            return html;
+        }
+        // All disaster types
+        var disasterTypes = ["flooding", "typhoon", "fire", "earthquake", "volcanic-eruption", "other"];
+
+        // Map disaster type to SVG icons
+        var disasterIcons = {
+            "flooding": "<img src='{{ url_for('static', filename='icons/flooding.svg') }}' width='40' height='40'>",
+            "typhoon": "<img src='{{ url_for('static', filename='icons/typhoon.svg') }}' width='40' height='40'>",
+            "fire": "<img src='{{ url_for('static', filename='icons/fire.svg') }}' width='40' height='40'>",
+            "earthquake": "<img src='{{ url_for('static', filename='icons/earthquake.svg') }}' width='40' height='40'>",
+            "volcanic-eruption": "<img src='{{ url_for('static', filename='icons/volcanic-eruption.svg') }}' width='40' height='40'>",
+            "other": "<img src='{{ url_for('static', filename='icons/other.svg') }}' width='40' height='40'>"
+        };
+
+
+
+        // -------------------------------------------------------
+        // MAP INTERACTIONS
+        // -------------------------------------------------------
+        function onEachFeature(feature, layer) {
+            layer.on({
+                mouseover: highlightFeature,
+                mouseout: resetHighlight,
+
+                click: function () {
+                    const provName = feature.properties.adm2_en;
+                    // Get summarized disasters for this province
+                    const summaryObj = provinceSummaries[provName] || null;
+                    // Define active disasters (array of disaster types)
+                    const disasters = summaryObj ? Object.keys(summaryObj) : [];
+                    var content = `<b>${feature.properties.adm2_en}</b><br>
+                                <div class="disaster-popup">`;
+                    content += createDisasterIcons(disasters);
+                    content += "</div>";
+                    layer.bindPopup(content, { maxWidth: 1000 }).openPopup();
+
+                    // Update right-side panel
+                    displayProvinceInfo(provName, summaryObj);
+                }
+            });
+        }
+
+        function createDisasterIcons(activeDisasters) {
+            var html = '';
+            disasterTypes.forEach(function(type) {
+                var isActive = activeDisasters.includes(type);
+                html += `
+                    <div class="disaster-icon-container"
+                        style="background-color:${isActive ? '#ffcc00' : '#eee'}; border: 1px solid ${isActive ? '#ffa500' : '#ccc'}">
+                        ${disasterIcons[type]}
+                    </div>
+                `;
+            });
+            return html;
+        }
+
+        function displayProvinceInfo(provinceName, summaryObj) {
+            const panel = document.getElementById("info-content");
+            const activeDisasters = summaryObj ? Object.keys(summaryObj) : [];
+
+            // Icons
+            const iconsHTML = createDisasterIcons(activeDisasters);
+
+            // Summaries
+            let summariesHTML = '';
+            if (summaryObj) {
+                Object.keys(summaryObj).forEach(type => {
+                    summaryObj[type].forEach(ent => {
+                        summariesHTML += `
+                            <div class="summary-box">
+                                <b>${type.toUpperCase()}</b><br>
+                                <b>${ent.Date}</b> — ${ent.Headline}<br>
+                                <a href="${ent.Link}" target="_blank">Source</a><br>
+                                <p>${ent.Summary}</p>
+                            </div>
+                        `;
+                    });
+                });
+            }
+
+            panel.innerHTML = `<h3>${provinceName}</h3>
+                            <div class="disaster-row">${iconsHTML}</div>
+                            ${summariesHTML}`;
+        }
+
+        // -------------------------------------------------------
+        // GEOJSON LAYER (ONLY DECLARE ONCE)
+        // -------------------------------------------------------
+        var geojson = L.geoJson(phProvinces, {
+            style: style,
+            onEachFeature: onEachFeature
+        }).addTo(map);
+    </script>
+</body>
+</html>
