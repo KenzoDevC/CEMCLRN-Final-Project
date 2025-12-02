@@ -8,10 +8,13 @@ from bs4 import BeautifulSoup
 import re
 from pydrive.auth import GoogleAuth	# pip install pydrive
 from pydrive.drive import GoogleDrive
+from datetime import datetime, timedelta
+from dateutil import parser
 
-LIMIT = 100
+LIMIT = 500
 MAX_LOOPS = 1
-OUTPUT_FILE = "disaster_articless.csv"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_FILE = os.path.join(BASE_DIR, "disaster_articless.csv")
 URL_TEMPLATE = "https://od2-content-api.abs-cbn.com/prod/latest?sectionId=nation&brand=OD&partner=imp-01&limit={}&offset={}"
 
 
@@ -36,18 +39,18 @@ headers = {
     "Referer": "https://news.abs-cbn.com/"
 }
 
+
 def is_disaster(article):
     raw_tags_string = article.get("tags")
-
-    if not raw_tags_string: 
+    if not raw_tags_string:
         return False, None
-    
-    article_tags = [t.strip().lower() for t in raw_tags_string.split(',')]
+
+    tags_lower = raw_tags_string.lower()
 
     for target in TARGET_TAGS:
-        if target in article_tags:
+        if target in tags_lower:
             return True, target
-            
+
     return False, None
 
 def clean_text(html_string):
@@ -95,17 +98,26 @@ def get_article_text(url, headers):
 
     return cleaned
 
-def get_gdrive_folder(drive, folder_name="DisasterArticles"):
+def get_or_create_shared_folder(drive, folder_name="DisasterArticles"):
     query = f"title='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
     file_list = drive.ListFile({'q': query}).GetList()
     
     if file_list:
-        folder = file_list[0]
+        folder = file_list[0]  # get first folder
      
     share_link = folder['alternateLink']
     print(f"Shareable folder link: {share_link}")
     
     return folder['id'], share_link
+
+
+def date_in_range(article_date_str, start_date, end_date):
+    try:
+        article_dt = parser.parse(article_date_str).date()
+    except:
+        return False
+    return start_date <= article_dt <= end_date
+
 
 def upload_to_drive(file_path):
     gauth = GoogleAuth()
@@ -120,7 +132,7 @@ def upload_to_drive(file_path):
 
     gauth.SaveCredentialsFile("credentials.txt")
     drive = GoogleDrive(gauth)
-    folder_id, share_link = get_gdrive_folder(drive)
+    folder_id, share_link = get_or_create_shared_folder(drive)
 
     file = drive.CreateFile({
         'title': os.path.basename(file_path),
@@ -130,37 +142,22 @@ def upload_to_drive(file_path):
     file.Upload()
     print(f"Uploaded {file_path} to {share_link}")
 
-    return drive, folder_id
 
-def poll_result(drive, folder_id, input_file, processed_prefix="processed_", timeout=3600, interval=5):
-    start_time = time.time()
-    base_name = os.path.basename(input_file)
-    processed_name = processed_prefix + base_name
-    while time.time() - start_time < timeout:
-        query = f"'{folder_id}' in parents and title = '{processed_name}' and trashed=false"
-        file_list = drive.ListFile({'q': query}).GetList()
-        if file_list:
-            processed_file = file_list[0]
-            processed_file.GetContentFile(processed_name)
-            print(f"Downloaded processed file: {processed_name}")
-            return True
-        print(f"Waiting for {processed_name}...")
-        time.sleep(interval)
-    print("Timeout waiting for processed file.")
-    return False
+def run_scraper(start_date=None, end_date=None):
+    # Set default date range to past 7 days if not provided
+    if start_date is None or end_date is None:
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=7)
 
-def run_scraper():
     file_exists = os.path.isfile(OUTPUT_FILE)
-    existing_links = set()
+    with open(OUTPUT_FILE, mode='a', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["Date", "Headline", "Keyword", "Link", "Tags", "Abstract", "Article"])
 
-    if file_exists:
-        with open(OUTPUT_FILE, 'r', newline='', encoding='utf-8') as f:
-            reader = csv.reader(f)
-            next(reader)  # Skip header
-            for row in reader:
-                if row and len(row) > 3:
-                    existing_links.add(row[3])  # Link is at index 3
+        print(f"Scraping articles from {start_date} to {end_date}")
 
+    file_exists = os.path.isfile(OUTPUT_FILE)
     with open(OUTPUT_FILE, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         if not file_exists:
@@ -198,11 +195,15 @@ def run_scraper():
                 for item in articles:
                     match, kw = is_disaster(item)
                     if match:
-                        link = f"https://news.abs-cbn.com/{item.get('slugline_url')}"
-                        if link in existing_links:
-                            print(f"Skipping duplicate: {link}")
-                            continue
-                        matches +=1
+                        # check date
+                        article_date = item.get("createdDateFull")
+
+                        if start_date and end_date:
+                            if not date_in_range(article_date, start_date, end_date):
+                                continue   # skip
+
+                        # only continues here if date is valid
+                        matches += 1
                         writer.writerow([
                             item.get("createdDateFull"),
                             item.get("title"),
@@ -212,8 +213,6 @@ def run_scraper():
                             item.get("abstract"),
                             get_article_text(f"{item.get('slugline_url')}", headers)
                         ])
-                        existing_links.add(link)
-
                 current_offset += returned_count
                 time.sleep(1)
 
@@ -227,9 +226,21 @@ def run_scraper():
 
             print(f"took {length} seconds to get data")
     print("\n done.")
+    try:
+        import pandas as pd
+        df = pd.read_csv(OUTPUT_FILE)
 
-    drive, folder_id = upload_to_drive(OUTPUT_FILE)
-    poll_result(drive, folder_id, OUTPUT_FILE)
+        # Remove duplicates based on Link
+        df = df.drop_duplicates(subset=["Link"], keep="first")
+
+        df.to_csv(OUTPUT_FILE, index=False)
+
+        print("Removed duplicates based on 'Link'.")
+    except Exception as e:
+        print(f"Duplicate cleanup error: {e}")
+
+    return OUTPUT_FILE
+    #upload_to_drive(OUTPUT_FILE)
     
 if __name__ == "__main__":
     run_scraper()
