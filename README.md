@@ -8,12 +8,4 @@ Place the file in the same folder as disaster_scrape.py. Then in command prompt,
 
 `python disaster_scrape.py`
 
-Open the google drive folder from the output link generated or use [this link](https://drive.google.com/drive/folders/1CK-3noRfwvlntTZyidVAOQgJ26pbAlnn)
-
-To access the folder in google colab, open the folder and click "add shortcut to drive". Then, run this code in a cell:
-
-```py
-from google.colab import drive
-drive.mount('/content/drive')
-disasterscsv = pd.read_csv("/content/drive/MyDrive/DisasterArticles/disaster_articless.csv")
-```
+The google drive folder can be accessed using [this link](https://drive.google.com/drive/folders/1CK-3noRfwvlntTZyidVAOQgJ26pbAlnn), and the google colab notebook [here](https://colab.research.google.com/drive/19_dJkISaPtQXcpQLS8C2u4RTPsNHp-k8?usp=sharing).
