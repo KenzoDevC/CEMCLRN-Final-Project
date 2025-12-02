@@ -100,7 +100,7 @@ def get_gdrive_folder(drive, folder_name="DisasterArticles"):
     file_list = drive.ListFile({'q': query}).GetList()
     
     if file_list:
-        folder = file_list[0]  # get first folder
+        folder = file_list[0]
      
     share_link = folder['alternateLink']
     print(f"Shareable folder link: {share_link}")
@@ -151,6 +151,16 @@ def poll_result(drive, folder_id, input_file, processed_prefix="processed_", tim
 
 def run_scraper():
     file_exists = os.path.isfile(OUTPUT_FILE)
+    existing_links = set()
+
+    if file_exists:
+        with open(OUTPUT_FILE, 'r', newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            next(reader)  # Skip header
+            for row in reader:
+                if row and len(row) > 3:
+                    existing_links.add(row[3])  # Link is at index 3
+
     with open(OUTPUT_FILE, mode='a', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         if not file_exists:
@@ -188,6 +198,10 @@ def run_scraper():
                 for item in articles:
                     match, kw = is_disaster(item)
                     if match:
+                        link = f"https://news.abs-cbn.com/{item.get('slugline_url')}"
+                        if link in existing_links:
+                            print(f"Skipping duplicate: {link}")
+                            continue
                         matches +=1
                         writer.writerow([
                             item.get("createdDateFull"),
@@ -198,6 +212,7 @@ def run_scraper():
                             item.get("abstract"),
                             get_article_text(f"{item.get('slugline_url')}", headers)
                         ])
+                        existing_links.add(link)
 
                 current_offset += returned_count
                 time.sleep(1)
