@@ -95,7 +95,7 @@ def get_article_text(url, headers):
 
     return cleaned
 
-def get_or_create_shared_folder(drive, folder_name="DisasterArticles"):
+def get_gdrive_folder(drive, folder_name="DisasterArticles"):
     query = f"title='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
     file_list = drive.ListFile({'q': query}).GetList()
     
@@ -120,7 +120,7 @@ def upload_to_drive(file_path):
 
     gauth.SaveCredentialsFile("credentials.txt")
     drive = GoogleDrive(gauth)
-    folder_id, share_link = get_or_create_shared_folder(drive)
+    folder_id, share_link = get_gdrive_folder(drive)
 
     file = drive.CreateFile({
         'title': os.path.basename(file_path),
@@ -129,6 +129,25 @@ def upload_to_drive(file_path):
     file.SetContentFile(file_path)
     file.Upload()
     print(f"Uploaded {file_path} to {share_link}")
+
+    return drive, folder_id
+
+def poll_result(drive, folder_id, input_file, processed_prefix="processed_", timeout=3600, interval=5):
+    start_time = time.time()
+    base_name = os.path.basename(input_file)
+    processed_name = processed_prefix + base_name
+    while time.time() - start_time < timeout:
+        query = f"'{folder_id}' in parents and title = '{processed_name}' and trashed=false"
+        file_list = drive.ListFile({'q': query}).GetList()
+        if file_list:
+            processed_file = file_list[0]
+            processed_file.GetContentFile(processed_name)
+            print(f"Downloaded processed file: {processed_name}")
+            return True
+        print(f"Waiting for {processed_name}...")
+        time.sleep(interval)
+    print("Timeout waiting for processed file.")
+    return False
 
 def run_scraper():
     file_exists = os.path.isfile(OUTPUT_FILE)
@@ -194,7 +213,8 @@ def run_scraper():
             print(f"took {length} seconds to get data")
     print("\n done.")
 
-    upload_to_drive(OUTPUT_FILE)
+    drive, folder_id = upload_to_drive(OUTPUT_FILE)
+    poll_result(drive, folder_id, OUTPUT_FILE)
     
 if __name__ == "__main__":
     run_scraper()
