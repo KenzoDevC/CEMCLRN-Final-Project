@@ -33,9 +33,8 @@ def sync_from_cloud():
             target_file = file_list[0]
             
             target_file.GetContentFile(LOCAL_JSON_PATH)
-        else:
-            
     except Exception as e:
+        print(f"Error: {e}")
 
 @app.route("/")
 def home():
@@ -48,7 +47,7 @@ def home():
                 json_content = json.load(f)
                 data = json_content.get("all_data", [])
         except Exception as e:
-    
+            print(f"Error: {e}")
     return render_template("index.html", articles=data)
 
 @app.route("/run-ingestion")
